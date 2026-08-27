@@ -1,8 +1,10 @@
+import sqlite3
 from collections.abc import Generator
 
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
 
@@ -11,10 +13,13 @@ class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
 
 
+_SHARED_MEMORY_URI = "file:contacts_api_memory?mode=memory&cache=shared"
+
+
 def _engine_url(database_url: str) -> str:
     if database_url.startswith("sqlite") and database_url.endswith(":memory:"):
         prefix = database_url.rsplit(":memory:", 1)[0]
-        return f"{prefix}file:contacts_api_memory?mode=memory&cache=shared&uri=true"
+        return f"{prefix}{_SHARED_MEMORY_URI}&uri=true"
     return database_url
 
 
@@ -23,8 +28,10 @@ def _engine_kwargs(database_url: str) -> dict:
         return {}
 
     # SQLite connections are thread-bound by default. FastAPI can serve sync
-    # endpoints on worker threads, so allow pooled SQLite connections across them.
-    return {"connect_args": {"check_same_thread": False}}
+    # endpoints on worker threads, so allow SQLite connections across them —
+    # and hand every request a fresh connection (NullPool) so no two requests
+    # ever share one. The shared-cache URI keeps them on the same database.
+    return {"connect_args": {"check_same_thread": False}, "poolclass": NullPool}
 
 
 settings = get_settings()
@@ -34,6 +41,15 @@ engine = create_engine(
     database_url,
     echo=settings.sql_echo,
     **_engine_kwargs(database_url),
+)
+
+# A shared-cache in-memory database is dropped the moment its last connection
+# closes. Pin one connection open for the process lifetime so the data
+# survives pool churn between requests.
+_memory_keeper = (
+    sqlite3.connect(_SHARED_MEMORY_URI, uri=True, check_same_thread=False)
+    if database_url != settings.database_url
+    else None
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
