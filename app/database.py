@@ -1,8 +1,9 @@
 import sqlite3
 from collections.abc import Generator
+from urllib.parse import urlencode
 
 from sqlalchemy import create_engine, event, inspect, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -16,11 +17,32 @@ class Base(DeclarativeBase):
 _SHARED_MEMORY_URI = "file:contacts_api_memory?mode=memory&cache=shared"
 
 
+def _is_sqlite_memory_url(database_url: str) -> bool:
+    return database_url.startswith("sqlite") and (
+        ":memory:" in database_url or "mode=memory" in database_url
+    )
+
+
 def _engine_url(database_url: str) -> str:
-    if database_url.startswith("sqlite") and database_url.endswith(":memory:"):
+    if database_url.startswith("sqlite") and ":memory:" in database_url:
         prefix = database_url.rsplit(":memory:", 1)[0]
         return f"{prefix}{_SHARED_MEMORY_URI}&uri=true"
     return database_url
+
+
+def _sqlite_memory_uri(database_url: str) -> str | None:
+    if not _is_sqlite_memory_url(database_url):
+        return None
+
+    url = make_url(database_url)
+    database = (url.database or "").lstrip("/")
+    if database == ":memory:":
+        return _SHARED_MEMORY_URI
+
+    query = dict(url.query)
+    query.pop("uri", None)
+    query_string = urlencode(query, doseq=True)
+    return f"{database}?{query_string}" if query_string else database
 
 
 def _engine_kwargs(database_url: str) -> dict:
@@ -47,8 +69,8 @@ engine = create_engine(
 # closes. Pin one connection open for the process lifetime so the data
 # survives pool churn between requests.
 _memory_keeper = (
-    sqlite3.connect(_SHARED_MEMORY_URI, uri=True, check_same_thread=False)
-    if database_url != settings.database_url
+    sqlite3.connect(memory_uri, uri=True, check_same_thread=False)
+    if (memory_uri := _sqlite_memory_uri(database_url)) is not None
     else None
 )
 
