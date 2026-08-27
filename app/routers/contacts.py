@@ -6,6 +6,7 @@ from app.database import get_db
 from app.models import Contact
 from app.schemas import (
     ContactCreate,
+    ContactListItem,
     ContactPage,
     ContactRead,
     ContactReplace,
@@ -101,7 +102,7 @@ def list_contacts(
         db, search=search, limit=limit, offset=offset, sort_by=sort_by, order=order
     )
     return ContactPage(
-        items=[ContactRead.model_validate(item) for item in items],
+        items=[ContactListItem.model_validate(item) for item in items],
         total=total,
         limit=limit,
         offset=offset,

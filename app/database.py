@@ -1,6 +1,6 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -45,11 +45,59 @@ def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
     cursor.close()
 
 
+def _apply_schema_compatibility_migrations(bind: Engine) -> None:
+    """Small upgrades for demo installs that already have a persisted schema."""
+    inspector = inspect(bind)
+    tables = set(inspector.get_table_names())
+    if "contacts" not in tables:
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("contacts")}
+    if "photo" not in columns:
+        with bind.begin() as connection:
+            connection.execute(text("ALTER TABLE contacts ADD COLUMN photo TEXT"))
+        columns.add("photo")
+
+    legacy_address_columns = {"address", "city", "state", "postal_code", "country"}
+    if "contact_addresses" not in tables or not legacy_address_columns.issubset(columns):
+        return
+
+    has_legacy_address = " OR ".join(
+        f"TRIM(COALESCE({column}, '')) <> ''" for column in sorted(legacy_address_columns)
+    )
+    with bind.begin() as connection:
+        connection.execute(
+            text(
+                f"""
+                INSERT INTO contact_addresses
+                    (contact_id, type, address, city, state, postal_code, country)
+                SELECT
+                    contacts.id, 'Home', contacts.address, contacts.city,
+                    contacts.state, contacts.postal_code, contacts.country
+                FROM contacts
+                WHERE ({has_legacy_address})
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM contact_addresses
+                      WHERE contact_addresses.contact_id = contacts.id
+                        AND contact_addresses.type = 'Home'
+                        AND COALESCE(contact_addresses.address, '') = COALESCE(contacts.address, '')
+                        AND COALESCE(contact_addresses.city, '') = COALESCE(contacts.city, '')
+                        AND COALESCE(contact_addresses.state, '') = COALESCE(contacts.state, '')
+                        AND COALESCE(contact_addresses.postal_code, '') = COALESCE(contacts.postal_code, '')
+                        AND COALESCE(contact_addresses.country, '') = COALESCE(contacts.country, '')
+                  )
+                """
+            )
+        )
+
+
 def init_db() -> None:
-    """Create tables. Called on startup; safe to call repeatedly."""
+    """Create and lightly upgrade tables. Called on startup; safe to call repeatedly."""
     from app import models  # noqa: F401  (register models on Base.metadata)
 
     Base.metadata.create_all(bind=engine)
+    _apply_schema_compatibility_migrations(engine)
 
 
 def get_db() -> Generator[Session, None, None]:
