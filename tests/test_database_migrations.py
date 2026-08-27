@@ -3,13 +3,18 @@ from sqlalchemy import create_engine, inspect, text
 from app.database import Base, _apply_schema_compatibility_migrations, _engine_url, _sqlite_memory_uri
 
 
-def test_plain_memory_sqlite_uses_shared_memory_url():
-    url = _engine_url("sqlite+pysqlite:///:memory:")
-
-    assert url.startswith("sqlite+pysqlite:///file:contacts_api_memory?")
+def assert_shared_memory_url(url: str) -> None:
+    assert url.startswith("sqlite")
+    assert "file:contacts_api_memory" in url
     assert "cache=shared" in url
     assert "mode=memory" in url
     assert "uri=true" in url
+
+
+def test_plain_memory_sqlite_uses_shared_memory_url():
+    url = _engine_url("sqlite+pysqlite:///:memory:")
+
+    assert_shared_memory_url(url)
     keeper_uri = _sqlite_memory_uri(url)
     assert keeper_uri is not None
     assert keeper_uri.startswith("file:contacts_api_memory?")
@@ -21,17 +26,25 @@ def test_plain_memory_sqlite_uses_shared_memory_url():
 def test_plain_memory_sqlite_preserves_query_options():
     url = _engine_url("sqlite+pysqlite:///:memory:?timeout=30")
 
-    assert "file:contacts_api_memory" in url
-    assert "cache=shared" in url
-    assert "mode=memory" in url
+    assert_shared_memory_url(url)
     assert "timeout=30" in url
-    assert "uri=true" in url
+
+
+def test_empty_path_sqlite_uses_shared_memory_url():
+    url = _engine_url("sqlite://")
+
+    assert_shared_memory_url(url)
+    assert _sqlite_memory_uri(url) is not None
 
 
 def test_custom_sqlite_memory_url_gets_keeper_uri():
     url = "sqlite+pysqlite:///file:custom_contacts?mode=memory&cache=shared&uri=true"
+    engine_url = _engine_url(url)
 
-    assert _engine_url(url) == url
+    assert "file:custom_contacts" in engine_url
+    assert "cache=shared" in engine_url
+    assert "mode=memory" in engine_url
+    assert "uri=true" in engine_url
     assert _sqlite_memory_uri(url) == "file:custom_contacts?mode=memory&cache=shared"
 
 

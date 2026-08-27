@@ -14,7 +14,11 @@ class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
 
 
-_SHARED_MEMORY_URI = "file:contacts_api_memory?mode=memory&cache=shared"
+_SHARED_MEMORY_DATABASE = "file:contacts_api_memory"
+
+
+def _is_plain_sqlite_memory_database(database: str | None) -> bool:
+    return database in {None, "", ":memory:"}
 
 
 def _sqlite_url(database_url: str):
@@ -25,16 +29,22 @@ def _sqlite_url(database_url: str):
 def _is_sqlite_memory_url(database_url: str) -> bool:
     url = _sqlite_url(database_url)
     return url is not None and (
-        url.database == ":memory:" or url.query.get("mode") == "memory"
+        _is_plain_sqlite_memory_database(url.database)
+        or url.query.get("mode") == "memory"
     )
 
 
 def _engine_url(database_url: str) -> str:
     url = _sqlite_url(database_url)
-    if url is not None and url.database == ":memory:":
+    if url is not None and _is_sqlite_memory_url(database_url):
         query = dict(url.query)
         query.update({"mode": "memory", "cache": "shared", "uri": "true"})
-        return url.set(database="file:contacts_api_memory", query=query).render_as_string(hide_password=False)
+        database = (
+            _SHARED_MEMORY_DATABASE
+            if _is_plain_sqlite_memory_database(url.database)
+            else url.database
+        )
+        return url.set(database=database, query=query).render_as_string(hide_password=False)
     return database_url
 
 
@@ -44,10 +54,11 @@ def _sqlite_memory_uri(database_url: str) -> str | None:
 
     url = make_url(database_url)
     database = (url.database or "").lstrip("/")
-    if database == ":memory:":
-        return _SHARED_MEMORY_URI
+    if _is_plain_sqlite_memory_database(url.database):
+        database = _SHARED_MEMORY_DATABASE
 
     query = dict(url.query)
+    query.update({"mode": "memory", "cache": "shared"})
     query.pop("uri", None)
     query_string = urlencode(query, doseq=True)
     return f"{database}?{query_string}" if query_string else database
