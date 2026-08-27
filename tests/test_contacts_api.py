@@ -1,4 +1,5 @@
 import base64
+from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image
 
@@ -125,6 +126,20 @@ def test_get_contact(client, payload):
     response = client.get(f"{BASE}/{contact_id}")
     assert response.status_code == 200
     assert response.json()["id"] == contact_id
+
+
+def test_parallel_get_contact_requests_are_stable(client, payload):
+    contact_id = client.post(BASE, json={**payload, "photo": SMALL_PHOTO}).json()["id"]
+
+    def get_contact(_index: int) -> tuple[int, int | None]:
+        response = client.get(f"{BASE}/{contact_id}")
+        body = response.json() if response.status_code == 200 else {}
+        return response.status_code, body.get("id")
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(get_contact, range(12)))
+
+    assert results == [(200, contact_id)] * 12
 
 
 def test_get_missing_contact_returns_404(client):
