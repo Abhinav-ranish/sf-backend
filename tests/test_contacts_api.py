@@ -1,4 +1,17 @@
+import base64
+
+from app.schemas import MAX_PHOTO_BYTES
+
 BASE = "/api/v1/contacts"
+SMALL_PHOTO = f"data:image/png;base64,{base64.b64encode(b'avatar').decode()}"
+WORK_ADDRESS = {
+    "type": "Work",
+    "address": "88 Colin P Kelly Jr St",
+    "city": "San Francisco",
+    "state": "CA",
+    "postal_code": "94107",
+    "country": "USA",
+}
 
 
 def test_health(client):
@@ -16,7 +29,42 @@ def test_create_contact(client, payload):
     assert body["id"] > 0
     assert body["email"] == "ada@example.com"
     assert body["full_name"] == "Ada Lovelace"
+    assert body["photo"] is None
+    assert body["addresses"][0]["type"] == "Home"
+    assert body["addresses"][0]["id"] > 0
     assert body["created_at"] and body["updated_at"]
+
+
+def test_create_stores_photo_and_multiple_addresses(client, payload):
+    response = client.post(
+        BASE,
+        json={**payload, "photo": SMALL_PHOTO, "addresses": [payload["addresses"][0], WORK_ADDRESS]},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["photo"] == SMALL_PHOTO
+    assert [address["type"] for address in body["addresses"]] == ["Home", "Work"]
+    assert body["addresses"][1]["address"] == "88 Colin P Kelly Jr St"
+
+
+def test_create_rejects_unsupported_photo_type(client, payload):
+    response = client.post(BASE, json={**payload, "photo": "data:image/gif;base64,R0lGODdh"})
+    assert response.status_code == 422
+
+
+def test_create_rejects_oversized_photo(client, payload):
+    oversized = base64.b64encode(b"x" * (MAX_PHOTO_BYTES + 1)).decode()
+    response = client.post(BASE, json={**payload, "photo": f"data:image/jpeg;base64,{oversized}"})
+    assert response.status_code == 422
+
+
+def test_create_rejects_blank_address_item(client, payload):
+    response = client.post(BASE, json={**payload, "addresses": [{"type": "Other"}]})
+    assert response.status_code == 422
+
+    response = client.post(BASE, json={**payload, "addresses": [{"type": "Other", "address": "   "}]})
+    assert response.status_code == 422
 
 
 def test_create_requires_valid_email(client, payload):
@@ -99,6 +147,33 @@ def test_patch_updates_only_sent_fields(client, payload):
     assert body["phone"] == "+1-000-000-0000"
     assert body["first_name"] == "Ada"
     assert body["company"] == "Analytical Engines"
+    assert body["addresses"][0]["city"] == "San Francisco"
+
+
+def test_patch_can_replace_or_clear_addresses(client, payload):
+    contact_id = client.post(BASE, json=payload).json()["id"]
+
+    response = client.patch(f"{BASE}/{contact_id}", json={"addresses": [WORK_ADDRESS]})
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["addresses"]) == 1
+    assert body["addresses"][0]["type"] == "Work"
+
+    response = client.patch(f"{BASE}/{contact_id}", json={"addresses": None})
+    assert response.status_code == 200
+    assert response.json()["addresses"] == []
+
+
+def test_patch_can_update_or_clear_photo(client, payload):
+    contact_id = client.post(BASE, json=payload).json()["id"]
+
+    response = client.patch(f"{BASE}/{contact_id}", json={"photo": SMALL_PHOTO})
+    assert response.status_code == 200
+    assert response.json()["photo"] == SMALL_PHOTO
+
+    response = client.patch(f"{BASE}/{contact_id}", json={"photo": None})
+    assert response.status_code == 200
+    assert response.json()["photo"] is None
 
 
 def test_patch_duplicate_email_conflicts(client, payload):
@@ -124,6 +199,27 @@ def test_put_replaces_contact(client, payload):
     body = response.json()
     assert body["full_name"] == "Grace Hopper"
     assert body["company"] is None  # omitted fields are cleared by PUT
+    assert body["photo"] is None
+    assert body["addresses"] == []
+
+
+def test_put_preserves_photo_when_sent_and_replaces_addresses(client, payload):
+    contact_id = client.post(BASE, json={**payload, "photo": SMALL_PHOTO}).json()["id"]
+    response = client.put(
+        f"{BASE}/{contact_id}",
+        json={
+            **payload,
+            "last_name": "Byron",
+            "photo": SMALL_PHOTO,
+            "addresses": [payload["addresses"][0], WORK_ADDRESS],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["full_name"] == "Ada Byron"
+    assert body["photo"] == SMALL_PHOTO
+    assert [address["type"] for address in body["addresses"]] == ["Home", "Work"]
 
 
 def test_put_missing_contact_returns_404(client):
