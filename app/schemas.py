@@ -61,6 +61,8 @@ def _validate_photo(value: str | None) -> str | None:
 class ContactAddressBase(BaseModel):
     """One typed postal address attached to a contact."""
 
+    model_config = ConfigDict(extra="forbid")
+
     type: AddressType = Field(
         default="Home",
         description="Address label. One of: Home, Work, or Other.",
@@ -211,7 +213,7 @@ _MINIMAL_EXAMPLE = {"first_name": "Grace", "last_name": "Hopper", "email": "grac
 class ContactCreate(ContactBase):
     """Body of `POST /api/v1/contacts`. Only the two names and email are required."""
 
-    model_config = ConfigDict(json_schema_extra={"examples": [_FULL_EXAMPLE, _MINIMAL_EXAMPLE]})
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [_FULL_EXAMPLE, _MINIMAL_EXAMPLE]})
 
 
 class ContactReplace(ContactBase):
@@ -222,7 +224,7 @@ class ContactReplace(ContactBase):
     Use `PATCH` if you only want to change some fields.
     """
 
-    model_config = ConfigDict(json_schema_extra={"examples": [_FULL_EXAMPLE]})
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [_FULL_EXAMPLE]})
 
 
 class ContactUpdate(BaseModel):
@@ -235,6 +237,7 @@ class ContactUpdate(BaseModel):
     """
 
     model_config = ConfigDict(
+        extra="forbid",
         json_schema_extra={"examples": [{"phone": "+1-415-555-0199", "job_title": "Chief Engineer"}]}
     )
 

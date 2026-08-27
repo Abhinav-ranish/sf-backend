@@ -93,6 +93,10 @@ Create, get, replace, and update responses return the full contact, including
 items only, so large photo data URLs are not repeated across every row; fetch an
 individual contact when the full payload is needed.
 
+Unknown request fields are rejected with `422`, including the old flat
+`address`, `city`, `state`, `postal_code`, and `country` fields. Send postal
+data through `addresses` instead.
+
 `photo` must be a data URL with MIME type `image/jpeg`, `image/png`, or
 `image/webp`. The decoded image must be 512 KB or smaller.
 

@@ -81,6 +81,17 @@ def test_create_rejects_blank_address_item(client, payload):
     assert response.status_code == 422
 
 
+def test_create_rejects_legacy_flat_address_fields(client, payload):
+    response = client.post(BASE, json={**payload, "address": "1 Old Way", "city": "San Francisco"})
+    assert response.status_code == 422
+
+
+def test_patch_rejects_legacy_flat_address_fields(client, payload):
+    contact_id = client.post(BASE, json=payload).json()["id"]
+    response = client.patch(f"{BASE}/{contact_id}", json={"address": "1 Old Way"})
+    assert response.status_code == 422
+
+
 def test_create_requires_valid_email(client, payload):
     response = client.post(BASE, json={**payload, "email": "not-an-email"})
     assert response.status_code == 422

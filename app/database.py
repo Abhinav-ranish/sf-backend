@@ -62,32 +62,28 @@ def _apply_schema_compatibility_migrations(bind: Engine) -> None:
     if "contact_addresses" not in tables or not legacy_address_columns.issubset(columns):
         return
 
-    select_columns = ", ".join(["id", *sorted(legacy_address_columns)])
+    has_legacy_address = " OR ".join(
+        f"TRIM(COALESCE({column}, '')) <> ''" for column in sorted(legacy_address_columns)
+    )
     with bind.begin() as connection:
-        rows = connection.execute(text(f"SELECT {select_columns} FROM contacts")).mappings()
-        for row in rows:
-            values = {column: row[column] for column in legacy_address_columns}
-            if not any(str(value).strip() for value in values.values() if value is not None):
-                continue
-
-            existing = connection.execute(
-                text("SELECT COUNT(*) FROM contact_addresses WHERE contact_id = :contact_id"),
-                {"contact_id": row["id"]},
-            ).scalar_one()
-            if existing:
-                continue
-
-            connection.execute(
-                text(
-                    """
-                    INSERT INTO contact_addresses
-                        (contact_id, type, address, city, state, postal_code, country)
-                    VALUES
-                        (:contact_id, 'Home', :address, :city, :state, :postal_code, :country)
-                    """
-                ),
-                {"contact_id": row["id"], **values},
+        connection.execute(
+            text(
+                f"""
+                INSERT INTO contact_addresses
+                    (contact_id, type, address, city, state, postal_code, country)
+                SELECT
+                    contacts.id, 'Home', contacts.address, contacts.city,
+                    contacts.state, contacts.postal_code, contacts.country
+                FROM contacts
+                WHERE ({has_legacy_address})
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM contact_addresses
+                      WHERE contact_addresses.contact_id = contacts.id
+                  )
+                """
             )
+        )
 
 
 def init_db() -> None:
