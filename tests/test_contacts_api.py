@@ -3,7 +3,10 @@ import base64
 from app.schemas import MAX_PHOTO_BYTES
 
 BASE = "/api/v1/contacts"
-SMALL_PHOTO = f"data:image/png;base64,{base64.b64encode(b'avatar').decode()}"
+SMALL_PNG = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII="
+)
+SMALL_PHOTO = f"data:image/png;base64,{SMALL_PNG}"
 WORK_ADDRESS = {
     "type": "Work",
     "address": "88 Colin P Kelly Jr St",
@@ -50,6 +53,17 @@ def test_create_stores_photo_and_multiple_addresses(client, payload):
 
 def test_create_rejects_unsupported_photo_type(client, payload):
     response = client.post(BASE, json={**payload, "photo": "data:image/gif;base64,R0lGODdh"})
+    assert response.status_code == 422
+
+
+def test_create_rejects_non_image_photo_bytes(client, payload):
+    non_image = base64.b64encode(b"avatar").decode()
+    response = client.post(BASE, json={**payload, "photo": f"data:image/png;base64,{non_image}"})
+    assert response.status_code == 422
+
+
+def test_create_rejects_photo_mime_mismatch(client, payload):
+    response = client.post(BASE, json={**payload, "photo": f"data:image/jpeg;base64,{SMALL_PNG}"})
     assert response.status_code == 422
 
 
@@ -104,6 +118,19 @@ def test_list_pagination_and_total(client, payload):
     assert body["total"] == 5
     assert len(body["items"]) == 2
     assert body["limit"] == 2 and body["offset"] == 2
+
+
+def test_list_returns_lightweight_items(client, payload):
+    client.post(BASE, json={**payload, "photo": SMALL_PHOTO, "notes": "private"})
+
+    response = client.get(BASE)
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["full_name"] == "Ada Lovelace"
+    assert "photo" not in item
+    assert "addresses" not in item
+    assert "notes" not in item
 
 
 def test_list_search(client, payload):

@@ -2,8 +2,10 @@ import base64
 import binascii
 import re
 from datetime import datetime, timezone
+from io import BytesIO
 from typing import Literal
 
+from PIL import Image, UnidentifiedImageError
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -18,6 +20,11 @@ AddressType = Literal["Home", "Work", "Other"]
 
 MAX_PHOTO_BYTES = 512 * 1024
 _PHOTO_DATA_URL_RE = re.compile(r"^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$")
+_PHOTO_MIME_FORMATS = {
+    "image/jpeg": "JPEG",
+    "image/png": "PNG",
+    "image/webp": "WEBP",
+}
 
 
 def _validate_photo(value: str | None) -> str | None:
@@ -28,6 +35,8 @@ def _validate_photo(value: str | None) -> str | None:
     if match is None:
         raise ValueError("Photo must be a JPEG, PNG, or WebP data URL.")
 
+    media_type = match.group(1)
+
     try:
         decoded = base64.b64decode(match.group(2), validate=True)
     except binascii.Error as exc:
@@ -35,6 +44,16 @@ def _validate_photo(value: str | None) -> str | None:
 
     if len(decoded) > MAX_PHOTO_BYTES:
         raise ValueError("Photo must be 512 KB or smaller.")
+
+    try:
+        with Image.open(BytesIO(decoded)) as image:
+            detected_format = image.format
+            image.verify()
+    except (OSError, UnidentifiedImageError, ValueError) as exc:
+        raise ValueError("Photo data must be a valid JPEG, PNG, or WebP image.") from exc
+
+    if detected_format != _PHOTO_MIME_FORMATS[media_type]:
+        raise ValueError("Photo MIME type must match the image data.")
 
     return value
 
@@ -295,10 +314,47 @@ class ContactRead(ContactBase):
         return f"{self.first_name} {self.last_name}".strip()
 
 
+class ContactListItem(BaseModel):
+    """Lightweight contact record returned from the paginated list endpoint."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int = Field(description="Server-assigned identifier.", examples=[1])
+    first_name: str = Field(description="Given name.", examples=["Ada"])
+    last_name: str = Field(description="Family name.", examples=["Lovelace"])
+    email: EmailStr = Field(description="Primary email address.", examples=["ada@example.com"])
+    phone: str | None = Field(default=None, description="Phone number.", examples=["+1-415-555-0101"])
+    company: str | None = Field(default=None, description="Employer or organisation name.", examples=["Analytical Engines"])
+    job_title: str | None = Field(default=None, description="Role held at the company.", examples=["Mathematician"])
+    created_at: datetime = Field(
+        description="UTC timestamp of when the contact was created.",
+        examples=["2026-08-19T16:22:58.189507Z"],
+    )
+    updated_at: datetime = Field(
+        description="UTC timestamp of the last modification.",
+        examples=["2026-08-19T16:22:58.189511Z"],
+    )
+
+    @field_validator("created_at", "updated_at")
+    @classmethod
+    def _as_utc(cls, value: datetime) -> datetime:
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+    @computed_field(description="Convenience concatenation of first and last name.", examples=["Ada Lovelace"])
+    @property
+    def full_name(self) -> str:
+        return f"{self.first_name} {self.last_name}".strip()
+
+
 class ContactPage(BaseModel):
     """One page of contacts plus the totals a client needs to paginate."""
 
-    items: list[ContactRead] = Field(description="Contacts on this page, ordered by the requested sort.")
+    items: list[ContactListItem] = Field(
+        description=(
+            "Lightweight contacts on this page, ordered by the requested sort. "
+            "Fetch an individual contact to read large fields such as photo data."
+        )
+    )
     total: int = Field(
         description="Total contacts matching the query, ignoring `limit` and `offset`.",
         examples=[42],

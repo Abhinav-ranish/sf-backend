@@ -1,5 +1,5 @@
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, load_only, selectinload
 
 from app.models import Contact, ContactAddress
 from app.schemas import ContactCreate, ContactReplace, ContactUpdate
@@ -58,7 +58,19 @@ def list_contacts(
     if sort_by not in SORTABLE_FIELDS:
         sort_by = "id"
     column = getattr(Contact, sort_by)
-    stmt = base_stmt.options(selectinload(Contact.addresses)).order_by(column.desc() if order == "desc" else column.asc())
+    stmt = base_stmt.options(
+        load_only(
+            Contact.id,
+            Contact.first_name,
+            Contact.last_name,
+            Contact.email,
+            Contact.phone,
+            Contact.company,
+            Contact.job_title,
+            Contact.created_at,
+            Contact.updated_at,
+        )
+    ).order_by(column.desc() if order == "desc" else column.asc())
 
     items = db.execute(stmt.limit(limit).offset(offset)).scalars().all()
     return list(items), total

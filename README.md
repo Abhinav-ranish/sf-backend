@@ -9,6 +9,7 @@ startup, and exposes interactive OpenAPI docs at `/docs`.
 - CRUD endpoints for contacts.
 - Search, sort, limit, and offset pagination for the contacts list.
 - Optional contact photo stored as a JPEG, PNG, or WebP data URL.
+- Lightweight list responses that omit full photo data.
 - One-to-many contact addresses through a `contact_addresses` table.
 - Address labels constrained to `Home`, `Work`, or `Other`.
 - Lightweight startup compatibility migration for existing SQLite databases.
@@ -56,7 +57,7 @@ file is also read.
 | --- | --- | --- |
 | `GET` | `/health` | Liveness and database status |
 | `GET` | `/` | API entry point |
-| `GET` | `/api/v1/contacts` | List contacts |
+| `GET` | `/api/v1/contacts` | List lightweight contact summaries |
 | `POST` | `/api/v1/contacts` | Create a contact |
 | `GET` | `/api/v1/contacts/{id}` | Fetch one contact |
 | `PUT` | `/api/v1/contacts/{id}` | Replace one contact |
@@ -86,6 +87,11 @@ Optional contact fields:
 - `job_title`
 - `addresses`
 - `notes`
+
+Create, get, replace, and update responses return the full contact, including
+`photo`, `addresses`, and `notes`. The paginated list endpoint returns summary
+items only, so large photo data URLs are not repeated across every row; fetch an
+individual contact when the full payload is needed.
 
 `photo` must be a data URL with MIME type `image/jpeg`, `image/png`, or
 `image/webp`. The decoded image must be 512 KB or smaller.
