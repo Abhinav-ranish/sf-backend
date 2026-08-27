@@ -324,6 +324,7 @@ class ContactListItem(BaseModel):
     last_name: str = Field(description="Family name.", examples=["Lovelace"])
     email: EmailStr = Field(description="Primary email address.", examples=["ada@example.com"])
     phone: str | None = Field(default=None, description="Phone number.", examples=["+1-415-555-0101"])
+    photo: str | None = Field(default=None, description="Contact photo as a data URL, for list avatars.", examples=[None])
     company: str | None = Field(default=None, description="Employer or organisation name.", examples=["Analytical Engines"])
     job_title: str | None = Field(default=None, description="Role held at the company.", examples=["Mathematician"])
     created_at: datetime = Field(

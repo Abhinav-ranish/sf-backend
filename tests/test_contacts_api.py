@@ -128,7 +128,7 @@ def test_list_returns_lightweight_items(client, payload):
     assert response.status_code == 200
     item = response.json()["items"][0]
     assert item["full_name"] == "Ada Lovelace"
-    assert "photo" not in item
+    assert item["photo"] == SMALL_PHOTO
     assert "addresses" not in item
     assert "notes" not in item
 
