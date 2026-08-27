@@ -1,5 +1,7 @@
 import base64
 
+from PIL import Image
+
 from app.schemas import MAX_PHOTO_BYTES
 
 BASE = "/api/v1/contacts"
@@ -73,6 +75,16 @@ def test_create_rejects_oversized_photo(client, payload):
     assert response.status_code == 422
 
 
+def test_create_rejects_decompression_bomb_photo(client, payload, monkeypatch):
+    def raise_bomb(*_args, **_kwargs):
+        raise Image.DecompressionBombError("image is too large")
+
+    monkeypatch.setattr("app.schemas.Image.open", raise_bomb)
+
+    response = client.post(BASE, json={**payload, "photo": SMALL_PHOTO})
+    assert response.status_code == 422
+
+
 def test_create_rejects_blank_address_item(client, payload):
     response = client.post(BASE, json={**payload, "addresses": [{"type": "Other"}]})
     assert response.status_code == 422
@@ -139,7 +151,7 @@ def test_list_returns_lightweight_items(client, payload):
     assert response.status_code == 200
     item = response.json()["items"][0]
     assert item["full_name"] == "Ada Lovelace"
-    assert item["photo"] == SMALL_PHOTO
+    assert "photo" not in item
     assert "addresses" not in item
     assert "notes" not in item
 

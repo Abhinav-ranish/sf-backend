@@ -65,7 +65,6 @@ def list_contacts(
             Contact.last_name,
             Contact.email,
             Contact.phone,
-            Contact.photo,
             Contact.company,
             Contact.job_title,
             Contact.created_at,

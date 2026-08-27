@@ -80,6 +80,12 @@ def _apply_schema_compatibility_migrations(bind: Engine) -> None:
                       SELECT 1
                       FROM contact_addresses
                       WHERE contact_addresses.contact_id = contacts.id
+                        AND contact_addresses.type = 'Home'
+                        AND COALESCE(contact_addresses.address, '') = COALESCE(contacts.address, '')
+                        AND COALESCE(contact_addresses.city, '') = COALESCE(contacts.city, '')
+                        AND COALESCE(contact_addresses.state, '') = COALESCE(contacts.state, '')
+                        AND COALESCE(contact_addresses.postal_code, '') = COALESCE(contacts.postal_code, '')
+                        AND COALESCE(contact_addresses.country, '') = COALESCE(contacts.country, '')
                   )
                 """
             )

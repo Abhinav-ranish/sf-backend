@@ -1,6 +1,7 @@
 import base64
 import binascii
 import re
+import warnings
 from datetime import datetime, timezone
 from io import BytesIO
 from typing import Literal
@@ -46,10 +47,18 @@ def _validate_photo(value: str | None) -> str | None:
         raise ValueError("Photo must be 512 KB or smaller.")
 
     try:
-        with Image.open(BytesIO(decoded)) as image:
-            detected_format = image.format
-            image.verify()
-    except (OSError, UnidentifiedImageError, ValueError) as exc:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(BytesIO(decoded)) as image:
+                detected_format = image.format
+                image.verify()
+    except (
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+        OSError,
+        UnidentifiedImageError,
+        ValueError,
+    ) as exc:
         raise ValueError("Photo data must be a valid JPEG, PNG, or WebP image.") from exc
 
     if detected_format != _PHOTO_MIME_FORMATS[media_type]:
@@ -327,7 +336,6 @@ class ContactListItem(BaseModel):
     last_name: str = Field(description="Family name.", examples=["Lovelace"])
     email: EmailStr = Field(description="Primary email address.", examples=["ada@example.com"])
     phone: str | None = Field(default=None, description="Phone number.", examples=["+1-415-555-0101"])
-    photo: str | None = Field(default=None, description="Contact photo as a data URL, for list avatars.", examples=[None])
     company: str | None = Field(default=None, description="Employer or organisation name.", examples=["Analytical Engines"])
     job_title: str | None = Field(default=None, description="Role held at the company.", examples=["Mathematician"])
     created_at: datetime = Field(
