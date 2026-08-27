@@ -1,6 +1,13 @@
 from sqlalchemy import create_engine, inspect, text
 
-from app.database import Base, _apply_schema_compatibility_migrations
+from app.database import Base, _apply_schema_compatibility_migrations, _engine_url
+
+
+def test_plain_memory_sqlite_uses_shared_memory_url():
+    assert (
+        _engine_url("sqlite+pysqlite:///:memory:")
+        == "sqlite+pysqlite:///file:contacts_api_memory?mode=memory&cache=shared&uri=true"
+    )
 
 
 def test_compatibility_migration_adds_photo_and_backfills_addresses(tmp_path):

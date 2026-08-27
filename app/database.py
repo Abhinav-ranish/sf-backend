@@ -3,7 +3,6 @@ from collections.abc import Generator
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from app.config import get_settings
 
@@ -12,25 +11,29 @@ class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
 
 
+def _engine_url(database_url: str) -> str:
+    if database_url.startswith("sqlite") and database_url.endswith(":memory:"):
+        prefix = database_url.rsplit(":memory:", 1)[0]
+        return f"{prefix}file:contacts_api_memory?mode=memory&cache=shared&uri=true"
+    return database_url
+
+
 def _engine_kwargs(database_url: str) -> dict:
     if not database_url.startswith("sqlite"):
         return {}
 
-    kwargs: dict = {"connect_args": {"check_same_thread": False}}
-    if ":memory:" in database_url or "mode=memory" in database_url:
-        # A plain in-memory SQLite database lives and dies with its connection.
-        # StaticPool keeps a single connection alive so every request — and every
-        # thread FastAPI hands work to — sees the same data for the process's lifetime.
-        kwargs["poolclass"] = StaticPool
-    return kwargs
+    # SQLite connections are thread-bound by default. FastAPI can serve sync
+    # endpoints on worker threads, so allow pooled SQLite connections across them.
+    return {"connect_args": {"check_same_thread": False}}
 
 
 settings = get_settings()
+database_url = _engine_url(settings.database_url)
 
 engine = create_engine(
-    settings.database_url,
+    database_url,
     echo=settings.sql_echo,
-    **_engine_kwargs(settings.database_url),
+    **_engine_kwargs(database_url),
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
