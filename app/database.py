@@ -1,9 +1,11 @@
+import sqlite3
 from collections.abc import Generator
+from urllib.parse import urlencode
 
 from sqlalchemy import create_engine, event, inspect, text
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
 
@@ -12,25 +14,83 @@ class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
 
 
+_SHARED_MEMORY_DATABASE = "file:contacts_api_memory"
+
+
+def _is_plain_sqlite_memory_database(database: str | None) -> bool:
+    return database in {None, "", ":memory:"}
+
+
+def _sqlite_url(database_url: str):
+    url = make_url(database_url)
+    return url if url.drivername.startswith("sqlite") else None
+
+
+def _is_sqlite_memory_url(database_url: str) -> bool:
+    url = _sqlite_url(database_url)
+    return url is not None and (
+        _is_plain_sqlite_memory_database(url.database)
+        or url.query.get("mode") == "memory"
+    )
+
+
+def _engine_url(database_url: str) -> str:
+    url = _sqlite_url(database_url)
+    if url is not None and _is_sqlite_memory_url(database_url):
+        query = dict(url.query)
+        query.update({"mode": "memory", "cache": "shared", "uri": "true"})
+        database = (
+            _SHARED_MEMORY_DATABASE
+            if _is_plain_sqlite_memory_database(url.database)
+            else url.database
+        )
+        return url.set(database=database, query=query).render_as_string(hide_password=False)
+    return database_url
+
+
+def _sqlite_memory_uri(database_url: str) -> str | None:
+    if not _is_sqlite_memory_url(database_url):
+        return None
+
+    url = make_url(database_url)
+    database = (url.database or "").lstrip("/")
+    if _is_plain_sqlite_memory_database(url.database):
+        database = _SHARED_MEMORY_DATABASE
+
+    query = dict(url.query)
+    query.update({"mode": "memory", "cache": "shared"})
+    query.pop("uri", None)
+    query_string = urlencode(query, doseq=True)
+    return f"{database}?{query_string}" if query_string else database
+
+
 def _engine_kwargs(database_url: str) -> dict:
     if not database_url.startswith("sqlite"):
         return {}
 
-    kwargs: dict = {"connect_args": {"check_same_thread": False}}
-    if ":memory:" in database_url or "mode=memory" in database_url:
-        # A plain in-memory SQLite database lives and dies with its connection.
-        # StaticPool keeps a single connection alive so every request — and every
-        # thread FastAPI hands work to — sees the same data for the process's lifetime.
-        kwargs["poolclass"] = StaticPool
-    return kwargs
+    # SQLite connections are thread-bound by default. FastAPI can serve sync
+    # endpoints on worker threads, so allow SQLite connections across them —
+    # and hand every request a fresh connection (NullPool) so no two requests
+    # ever share one. The shared-cache URI keeps them on the same database.
+    return {"connect_args": {"check_same_thread": False}, "poolclass": NullPool}
 
 
 settings = get_settings()
+database_url = _engine_url(settings.database_url)
 
 engine = create_engine(
-    settings.database_url,
+    database_url,
     echo=settings.sql_echo,
-    **_engine_kwargs(settings.database_url),
+    **_engine_kwargs(database_url),
+)
+
+# A shared-cache in-memory database is dropped the moment its last connection
+# closes. Pin one connection open for the process lifetime so the data
+# survives pool churn between requests.
+_memory_keeper = (
+    sqlite3.connect(memory_uri, uri=True, check_same_thread=False)
+    if (memory_uri := _sqlite_memory_uri(database_url)) is not None
+    else None
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
