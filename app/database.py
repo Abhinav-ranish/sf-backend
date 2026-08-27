@@ -17,16 +17,24 @@ class Base(DeclarativeBase):
 _SHARED_MEMORY_URI = "file:contacts_api_memory?mode=memory&cache=shared"
 
 
+def _sqlite_url(database_url: str):
+    url = make_url(database_url)
+    return url if url.drivername.startswith("sqlite") else None
+
+
 def _is_sqlite_memory_url(database_url: str) -> bool:
-    return database_url.startswith("sqlite") and (
-        ":memory:" in database_url or "mode=memory" in database_url
+    url = _sqlite_url(database_url)
+    return url is not None and (
+        url.database == ":memory:" or url.query.get("mode") == "memory"
     )
 
 
 def _engine_url(database_url: str) -> str:
-    if database_url.startswith("sqlite") and ":memory:" in database_url:
-        prefix = database_url.rsplit(":memory:", 1)[0]
-        return f"{prefix}{_SHARED_MEMORY_URI}&uri=true"
+    url = _sqlite_url(database_url)
+    if url is not None and url.database == ":memory:":
+        query = dict(url.query)
+        query.update({"mode": "memory", "cache": "shared", "uri": "true"})
+        return url.set(database="file:contacts_api_memory", query=query).render_as_string(hide_password=False)
     return database_url
 
 

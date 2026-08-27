@@ -6,8 +6,26 @@ from app.database import Base, _apply_schema_compatibility_migrations, _engine_u
 def test_plain_memory_sqlite_uses_shared_memory_url():
     url = _engine_url("sqlite+pysqlite:///:memory:")
 
-    assert url == "sqlite+pysqlite:///file:contacts_api_memory?mode=memory&cache=shared&uri=true"
-    assert _sqlite_memory_uri(url) == "file:contacts_api_memory?mode=memory&cache=shared"
+    assert url.startswith("sqlite+pysqlite:///file:contacts_api_memory?")
+    assert "cache=shared" in url
+    assert "mode=memory" in url
+    assert "uri=true" in url
+    keeper_uri = _sqlite_memory_uri(url)
+    assert keeper_uri is not None
+    assert keeper_uri.startswith("file:contacts_api_memory?")
+    assert "cache=shared" in keeper_uri
+    assert "mode=memory" in keeper_uri
+    assert "uri=true" not in keeper_uri
+
+
+def test_plain_memory_sqlite_preserves_query_options():
+    url = _engine_url("sqlite+pysqlite:///:memory:?timeout=30")
+
+    assert "file:contacts_api_memory" in url
+    assert "cache=shared" in url
+    assert "mode=memory" in url
+    assert "timeout=30" in url
+    assert "uri=true" in url
 
 
 def test_custom_sqlite_memory_url_gets_keeper_uri():
@@ -15,6 +33,13 @@ def test_custom_sqlite_memory_url_gets_keeper_uri():
 
     assert _engine_url(url) == url
     assert _sqlite_memory_uri(url) == "file:custom_contacts?mode=memory&cache=shared"
+
+
+def test_sqlite_filename_containing_memory_is_not_rewritten():
+    url = "sqlite+pysqlite:///./contacts:memory:.db"
+
+    assert _engine_url(url) == url
+    assert _sqlite_memory_uri(url) is None
 
 
 def test_compatibility_migration_adds_photo_and_backfills_addresses(tmp_path):
